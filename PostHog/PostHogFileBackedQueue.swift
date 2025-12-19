@@ -34,7 +34,7 @@ class PostHogFileBackedQueue {
 
         do {
             items = try FileManager.default.contentsOfDirectory(atPath: queue.path)
-            items.sort { Double($0)! < Double($1)! }
+            items.sort { $0.compare($1, options: .numeric) == .orderedAscending }
         } catch {
             hedgeLog("Failed to load files for queue \(error)")
             // failed to read directory – bad permissions, perhaps?
