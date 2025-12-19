@@ -58,8 +58,8 @@ class PostHogFileBackedQueue {
 
     func add(_ contents: Data) {
         do {
-            let filename = "\(Date().timeIntervalSince1970)"
-            try contents.write(to: queue.appendingPathComponent(filename))
+            let filename = "\(Date().timeIntervalSince1970)_\(UUID().uuidString)"
+            try contents.write(to: queue.appendingPathComponent(filename), options: [.atomic])
             items.append(filename)
         } catch {
             hedgeLog("Could not write file \(error)")
@@ -78,13 +78,10 @@ class PostHogFileBackedQueue {
         for item in items {
             let itemURL = queue.appendingPathComponent(item)
             do {
-                if !FileManager.default.fileExists(atPath: itemURL.path) {
-                    hedgeLog("File \(itemURL) does not exist")
-                    continue
-                }
                 let contents = try Data(contentsOf: itemURL)
-
                 results.append(contents)
+            } catch CocoaError.fileReadNoSuchFile {
+                hedgeLog("File \(itemURL) does not exist")
             } catch {
                 hedgeLog("File \(itemURL) is corrupted \(error)")
 
@@ -107,7 +104,15 @@ class PostHogFileBackedQueue {
                 }
                 return items.remove(at: 0) // We always remove from the top of the queue
             }) {
-                deleteSafely(queue.appendingPathComponent(removed))
+                let file = queue.appendingPathComponent(removed)
+
+                do {
+                    try FileManager.default.removeItem(at: file)
+                } catch CocoaError.fileNoSuchFile {
+                    hedgeLog("File already deleted")
+                } catch {
+                    hedgeLog("Error trying to delete file \(file.path) \(error)")
+                }
             }
         }
     }
