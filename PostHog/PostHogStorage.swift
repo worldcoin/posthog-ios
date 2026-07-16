@@ -259,10 +259,14 @@ class PostHogStorage {
     let appFolderUrl: URL
 
     init(_ config: PostHogConfig) {
-        appFolderUrl = Self.getAppFolderUrl(from: config)
+        let namespace = Self.validatedStorageNamespace(from: config)
+        appFolderUrl = Self.getAppFolderUrl(from: config, namespace: namespace)
 
-        // migrate legacy storage if needed
-        Self.migrateLegacyStorage(from: config, to: appFolderUrl)
+        // migrate legacy storage if needed. Namespaced storage starts empty by design — running
+        // the migration there would steal the legacy files from the primary (un-namespaced) instance.
+        if namespace == nil {
+            Self.migrateLegacyStorage(from: config, to: appFolderUrl)
+        }
     }
 
     func url(forKey key: StorageKey) -> URL {
@@ -381,9 +385,27 @@ class PostHogStorage {
         }
     }
 
-    private static func getAppFolderUrl(from configuration: PostHogConfig) -> URL {
-        let apiDir = getBaseAppFolderUrl(from: configuration)
+    /// Returns `config.storageNamespace` when it is usable as a directory name, or `nil` when unset.
+    /// The character allowlist keeps the namespace from colliding with the `posthog.*` key
+    /// files stored in the parent folder and from smuggling path separators. An invalid value is a
+    /// programmer error — falling back to shared storage would silently reintroduce the
+    /// cross-instance queue stealing the namespace exists to prevent, so fail loud instead.
+    private static func validatedStorageNamespace(from configuration: PostHogConfig) -> String? {
+        guard let namespace = configuration.storageNamespace else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard !namespace.isEmpty, namespace.unicodeScalars.allSatisfy(allowed.contains) else {
+            preconditionFailure("storageNamespace '\(namespace)' is invalid: only letters, digits, '-' and '_' are allowed.")
+        }
+        return namespace
+    }
+
+    private static func getAppFolderUrl(from configuration: PostHogConfig, namespace: String?) -> URL {
+        var apiDir = getBaseAppFolderUrl(from: configuration)
             .appendingPathComponent(configuration.projectToken)
+
+        if let namespace {
+            apiDir.appendPathComponent(namespace)
+        }
 
         createDirectoryAtURLIfNeeded(url: apiDir)
 

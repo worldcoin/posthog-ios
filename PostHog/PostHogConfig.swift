@@ -296,6 +296,19 @@ public typealias BeforeSendBlock = (PostHogEvent) -> PostHogEvent?
     /// Default: nil
     @objc public var appGroupIdentifier: String?
 
+    /// Partitions this instance's on-disk state (event queues, identity, feature flags, remote
+    /// config) into a dedicated subdirectory, isolating it from other SDK instances that share
+    /// the same project token. Without it, same-token instances share one storage folder and
+    /// steal each other's queued events at init, delivering them to the wrong host.
+    ///
+    /// Set a distinct value on every *additional* instance created via `PostHogSDK.with(_:)`;
+    /// leave the primary instance as `nil` so it keeps its existing storage. Only letters,
+    /// digits, `-` and `_` are allowed — an invalid value traps with `preconditionFailure`,
+    /// because falling back to shared storage would silently reintroduce the cross-talk this
+    /// option exists to prevent.
+    /// Default: nil
+    @objc public var storageNamespace: String?
+
     /// Session replay snapshot endpoint path.
     ///
     /// - Warning: This value is managed by the SDK from remote configuration and should not

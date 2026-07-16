@@ -190,4 +190,57 @@ class PostHogStorageTest {
 
         sut.reset()
     }
+
+    @Test("storage namespace partitions storage into a subdirectory of the project token folder")
+    func storageNamespacePartitionsStorage() {
+        let rootStorage = getSut()
+
+        let namespacedConfig = PostHogConfig(projectToken: "test_project_token")
+        namespacedConfig.storageNamespace = "fuzzy"
+        let namespacedStorage = PostHogStorage(namespacedConfig)
+
+        defer {
+            try? FileManager.default.removeItem(at: namespacedStorage.appFolderUrl)
+            rootStorage.reset()
+        }
+
+        let expectedSuffix = ["Library", "Application Support", testBundleIdentifier, "test_project_token", "fuzzy"]
+        let actualSuffix = Array(namespacedStorage.appFolderUrl.pathComponents.suffix(expectedSuffix.count))
+        #expect(actualSuffix == expectedSuffix)
+        #expect(namespacedStorage.appFolderUrl != rootStorage.appFolderUrl)
+
+        // values written under one storage must be invisible to the other
+        rootStorage.setString(forKey: .distinctId, contents: "root_distinct_id")
+        namespacedStorage.setString(forKey: .distinctId, contents: "namespaced_distinct_id")
+        #expect(rootStorage.getString(forKey: .distinctId) == "root_distinct_id")
+        #expect(namespacedStorage.getString(forKey: .distinctId) == "namespaced_distinct_id")
+    }
+
+    @Test("namespaced instance does not pick up or clear the root instance's queued events")
+    func storageNamespaceIsolatesFileBackedQueues() {
+        let rootStorage = getSut()
+
+        let namespacedConfig = PostHogConfig(projectToken: "test_project_token")
+        namespacedConfig.storageNamespace = "fuzzy"
+        let namespacedStorage = PostHogStorage(namespacedConfig)
+
+        defer {
+            try? FileManager.default.removeItem(at: rootStorage.url(forKey: .queue))
+            try? FileManager.default.removeItem(at: namespacedStorage.appFolderUrl)
+            rootStorage.reset()
+        }
+
+        let rootQueue = PostHogFileBackedQueue(queue: rootStorage.url(forKey: .queue))
+        rootQueue.add("root event".data(using: .utf8)!)
+        #expect(rootQueue.depth == 1)
+
+        // a queue created after the root one has pending events must start empty
+        let namespacedQueue = PostHogFileBackedQueue(queue: namespacedStorage.url(forKey: .queue))
+        #expect(namespacedQueue.depth == 0)
+
+        // clearing the namespaced queue must leave the root queue's files intact
+        namespacedQueue.clear()
+        let reloadedRootQueue = PostHogFileBackedQueue(queue: rootStorage.url(forKey: .queue))
+        #expect(reloadedRootQueue.depth == 1)
+    }
 }
